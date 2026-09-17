@@ -33,6 +33,27 @@ struct Geom
     glm::mat4 invTranspose;
 };
 
+
+// Flat bounding volume hierarchy node used to accelerate ray-scene intersection tests
+// Construct BVH on CPU and store as array so it can be traversed iteratively on GPU
+struct BVHNode {
+
+    // World-space axis-aligned bounding box enclosing this node
+    glm::vec3 boundsMin;
+    glm::vec3 boundsMax;
+
+
+    // Indices of child nodes in flattened BVH array
+    // Leaf nodes use -1 for both child indices
+    int leftChild;
+    int rightChild;
+
+    // Range into flattened geometry-index array for primitives stored in this leaf
+    // Interior nodes use a geometry count of 0
+    int firstGeomIndex;
+    int geomCount;
+};
+
 struct Material
 {
     glm::vec3 color;

@@ -285,6 +285,8 @@ void RenderImGui()
     //ImGui::SameLine();
     //ImGui::Text("counter = %d", counter);
     ImGui::Text("Traced Depth %d", imguiData->TracedDepth);
+    ImGui::Checkbox("Sort paths by material", &imguiData->SortByMaterial); // Toggle material sorting before shading for performance comparison
+    ImGui::Checkbox("Use BVH acceleration", &imguiData->UseBVH); // Toggle BVH acceleration for direct comparison against naive intersection testing
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     ImGui::End();
 

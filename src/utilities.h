@@ -18,8 +18,14 @@
 class GuiDataContainer
 {
 public:
-    GuiDataContainer() : TracedDepth(0) {}
+    GuiDataContainer() : TracedDepth(0), SortByMaterial(false), UseBVH(false) {}
     int TracedDepth;
+
+    // Toggle material-based path sorting before shading
+    bool SortByMaterial;
+
+
+    bool UseBVH;
 };
 
 namespace utilityCore

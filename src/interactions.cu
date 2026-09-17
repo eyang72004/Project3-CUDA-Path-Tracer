@@ -51,7 +51,32 @@ __host__ __device__ void scatterRay(
     const Material &m,
     thrust::default_random_engine &rng)
 {
+
+
+    // Ideal specular reflection
+    if (m.hasReflective > 0.0f) {
+
+
+        pathSegment.ray.origin = intersect;
+        pathSegment.ray.direction = glm::reflect(pathSegment.ray.direction, normal);
+
+        pathSegment.color *= m.color;
+
+        return;
+    }
+
+
     // TODO: implement this.
     // A basic implementation of pure-diffuse shading will just call the
     // calculateRandomDirectionInHemisphere defined above.
+
+
+    // Pure-diffuse scattering:
+    // Continue path from the surface intersection in a randomly sampled direction over the hemisphere oriented around the surface normal
+    pathSegment.ray.origin = intersect;
+    pathSegment.ray.direction = calculateRandomDirectionInHemisphere(normal, rng);
+
+
+    // Attenuate the path throughput by the diffuse surface color
+    pathSegment.color *= m.color;
 }
