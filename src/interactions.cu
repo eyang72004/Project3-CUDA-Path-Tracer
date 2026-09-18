@@ -44,6 +44,25 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
         + sin(around) * over * perpendicularDirection2;
 }
 
+
+// Approximate dielectric Fresnel reflectance using Schlick's approximation 
+__host__ __device__ float schlickFresnel(
+    float cosine, float indexOfRefractionIncident, float indexOfRefractionTransmitted)
+{
+
+    float r0 = (indexOfRefractionIncident - indexOfRefractionTransmitted) / (indexOfRefractionIncident + indexOfRefractionTransmitted);
+
+
+
+    r0 *= r0;
+
+
+    float oneMinusCosine = 1.0f - cosine;
+
+
+    return r0 + (1.0f - r0) * oneMinusCosine * oneMinusCosine * oneMinusCosine * oneMinusCosine * oneMinusCosine;
+}
+
 __host__ __device__ void scatterRay(
     PathSegment & pathSegment,
     glm::vec3 intersect,
@@ -52,6 +71,74 @@ __host__ __device__ void scatterRay(
     thrust::default_random_engine &rng)
 {
 
+
+    // Ideal dielectric refraction with Fresnel reflection
+    if (m.hasRefractive > 0.0f) {
+
+        glm::vec3 incidentDirection = glm::normalize(pathSegment.ray.direction);
+
+        glm::vec3 orientedNormal = normal;
+
+        // Assume rays start in air unless they are exiting refractive object
+        float incidentIOR = 1.0f;
+        float transmittedIOR = m.indexOfRefraction;
+
+        float cosIncident = glm::dot(-incidentDirection, orientedNormal);
+
+
+        // Negative cosine means ray is inside the material and exiting it
+        if (cosIncident < 0.0f) {
+
+            orientedNormal = -orientedNormal;
+
+            incidentIOR = m.indexOfRefraction;
+
+
+            transmittedIOR = 1.0f;
+
+
+            cosIncident = glm::dot(-incidentDirection, orientedNormal);
+        }
+
+        float eta = incidentIOR / transmittedIOR;
+
+
+        // Snell's Law -> if sin^2(theta_t) exceeds 1, transmission is impossible and the ray undergoes total internal reflection
+        float sinTransmittedSquared = eta * eta * (1.0f - cosIncident * cosIncident);
+
+
+        bool totalInternalReflection = sinTransmittedSquared > 1.0f;
+
+        float reflectProbability = 1.0f;
+
+
+        if (!totalInternalReflection) {
+
+            reflectProbability = schlickFresnel(cosIncident, incidentIOR, transmittedIOR);
+        }
+
+        thrust::uniform_real_distribution<float> u01(0.0f, 1.0f);
+
+
+
+        if (totalInternalReflection || u01(rng) < reflectProbability) {
+
+            pathSegment.ray.direction = glm::normalize(glm::reflect(incidentDirection, orientedNormal));
+        }
+        else {
+            pathSegment.ray.direction = glm::normalize(glm::refract(incidentDirection, orientedNormal, eta));
+        }
+
+        pathSegment.ray.origin = intersect;
+        pathSegment.color *= m.color;
+
+        return;
+
+
+    }
+
+
+    
 
     // Ideal specular reflection
     if (m.hasReflective > 0.0f) {

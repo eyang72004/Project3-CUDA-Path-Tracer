@@ -524,6 +524,44 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
             - cam.up * cam.pixelLength.y * ((float)y + jitterY - (float)cam.resolution.y * 0.5f)
         );
 
+
+        // Physically based depth of field using a thin-lens camera model.
+        // Keep the original pinhole behavior when the lens radius is zero.
+        if (cam.lensRadius > 0.0f && cam.focalDistance > 0.0f) {
+
+
+
+            // The existing antialiased ray determines the point on the focal plane that every lens sample for this pixel sample should converge toward.
+            glm::vec3 pinholeDirection = segment.ray.direction;
+
+
+
+            glm::vec3 cameraForward = glm::normalize(cam.view);
+
+
+
+            float focalPlaneT = cam.focalDistance / glm::dot(pinholeDirection, cameraForward);
+
+            glm::vec3 focalPoint = cam.position + focalPlaneT * pinholeDirection;
+
+            // Uniformly sample the circular lens area rather than a square aperture.
+            float lensSampleRadius = cam.lensRadius * sqrtf(u01(rng));
+
+
+            float lensSampleAngle = 2.0f * PI * u01(rng);
+
+
+            glm::vec3 lensOffset = glm::normalize(cam.right) * (lensSampleRadius * cosf(lensSampleAngle)) + glm::normalize(cam.up) * (lensSampleRadius * sinf(lensSampleAngle));
+
+
+
+            // Move the ray origin onto the sampled lens position and redirect the ray through the focal point determined by the original pinhole ray.
+            segment.ray.origin = cam.position + lensOffset;
+
+
+            segment.ray.direction = glm::normalize(focalPoint - segment.ray.origin);
+        }
+
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
     }

@@ -1,0 +1,74 @@
+{
+  "Materials": {
+    "white": {
+      "TYPE": "Diffuse",
+      "RGB": [ 0.8, 0.8, 0.8 ]
+    },
+    "red": {
+      "TYPE": "Diffuse",
+      "RGB": [ 0.8, 0.1, 0.1 ]
+    },
+    "green": {
+      "TYPE": "Diffuse",
+      "RGB": [ 0.1, 0.8, 0.1 ]
+    },
+    "blue": {
+      "TYPE": "Diffuse",
+      "RGB": [ 0.1, 0.1, 0.8 ]
+    },
+    "light": {
+      "TYPE": "Emitting",
+      "RGB": [ 1.0, 1.0, 1.0 ],
+      "EMITTANCE": 5.0
+    }
+  },
+  "Camera": {
+    "RES": [ 800, 800 ],
+    "FOVY": 45.0,
+    "ITERATIONS": 5000,
+    "DEPTH": 8,
+    "FILE": "dof_showcase",
+    "EYE": [ 0.0, 5.0, 12.0 ],
+    "LOOKAT": [ 0.0, 5.0, 0.0 ],
+    "UP": [ 0.0, 1.0, 0.0 ],
+    "LENS_RADIUS": 0.3,
+    "FOCAL_DISTANCE": 9.0
+  },
+  "Objects": [
+    {
+      "TYPE": "sphere",
+      "MATERIAL": "red",
+      "TRANS": [ -2.5, 4.0, 3.0 ],
+      "ROTAT": [ 0.0, 0.0, 0.0 ],
+      "SCALE": [ 2.0, 2.0, 2.0 ]
+    },
+    {
+      "TYPE": "sphere",
+      "MATERIAL": "green",
+      "TRANS": [ 0.0, 4.0, 0.0 ],
+      "ROTAT": [ 0.0, 0.0, 0.0 ],
+      "SCALE": [ 2.0, 2.0, 2.0 ]
+    },
+    {
+      "TYPE": "sphere",
+      "MATERIAL": "blue",
+      "TRANS": [ 2.5, 4.0, -3.0 ],
+      "ROTAT": [ 0.0, 0.0, 0.0 ],
+      "SCALE": [ 2.0, 2.0, 2.0 ]
+    },
+    {
+      "TYPE": "cube",
+      "MATERIAL": "white",
+      "TRANS": [ 0.0, 1.5, 0.0 ],
+      "ROTAT": [ 0.0, 0.0, 0.0 ],
+      "SCALE": [ 12.0, 0.5, 12.0 ]
+    },
+    {
+      "TYPE": "cube",
+      "MATERIAL": "light",
+      "TRANS": [ 0.0, 9.0, 0.0 ],
+      "ROTAT": [ 0.0, 0.0, 0.0 ],
+      "SCALE": [ 6.0, 0.5, 6.0 ]
+    }
+  ]
+}
