@@ -1096,6 +1096,9 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // Update the number of active paths after stream compaction
         num_paths = dev_path_end - dev_paths;
 
+        // Print number of unterminated paths after this bounce for stream-compaction analysis
+        printf("Stream Compaction: bounce %d, active paths = %d\n", depth, num_paths);
+
         iterationComplete = (num_paths == 0); //true; // TODO: should be based off stream compaction results.
 
         if (guiData != NULL)
