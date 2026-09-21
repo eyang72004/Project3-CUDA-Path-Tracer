@@ -7,15 +7,15 @@
 
 ## Overview
 
-This project implements a CUDA path tracer with stochastic antialiasing, diffuse and ideal specular materials, iterative path tracing with stream compaction, and optional material sorting before shading. I also implemented three additional rendering and acceleration features: a bounding volume hierarchy (BVH), dielectric refraction with Fresnel reflection, and physically based depth of field using a thin-lens camera model.
+This project implements a CUDA path tracer with stochastic antialiasing, diffuse and ideal specular materials, iterative path tracing with stream compaction, and optional material sorting before shading. I also implemented three rendering and acceleration features: a bounding volume hierarchy (BVH), dielectric refraction with Fresnel reflection, and physically based depth of field using a thin-lens camera model.
 
 The BVH is constructed on the CPU and stored as a flattened hierarchy for iterative traversal on the GPU. I kept both the BVH and naive intersection implementations available through an ImGui toggle so that I could compare their performance directly. For refractive materials, I implemented Snell's law using `glm::refract`, total internal reflection, and Fresnel reflection using Schlick's approximation. For depth of field, I sample ray origins over a circular lens and redirect them toward a focal plane.
 
 ## Final Render
 
-![Cornell box rendered with the CUDA path tracer](img/cornell_bvh_1000.png)
+![Final showcase scene rendered with the CUDA path tracer](img/final_showcase_5000.png)
 
-*Cornell box rendered for 1000 iterations using the CUDA path tracer.*
+*Final showcase scene rendered for 5000 iterations.*
 
 
 
@@ -35,14 +35,14 @@ After each bounce, I use stream compaction to remove terminated paths from the a
 
 ### Material Sorting
 
-I also implemented the required optional material sorting step. Before shading, I sort the intersection and path arrays together using a zipped Thrust sort keyed by material ID. Keeping the two arrays zipped preserves the correspondence between each path and its intersection while grouping paths that use the same material.
+I also implemented material sorting before shading. I sort the intersection and path arrays together using a zipped Thrust sort keyed by material ID. Keeping the two arrays zipped preserves the correspondence between each path and its intersection while grouping paths that use the same material.
 
 Material sorting can be enabled or disabled from the ImGui interface. I use this toggle later in the performance analysis to compare the cost of sorting against the potential benefit of grouping similar shading work.
 
 
 ## Bounding Volume Hierarchy
 
-For the 6-point hierarchical spatial data structure feature, I implemented a bounding volume hierarchy (BVH). The hierarchy is constructed once on the CPU when the scene is initialized and is then copied to device memory for use during path tracing.
+I implemented a bounding volume hierarchy (BVH) to accelerate ray-scene intersection tests. The hierarchy is constructed once on the CPU when the scene is initialized and is then copied to device memory for use during path tracing.
 
 ### BVH Construction
 
@@ -65,7 +65,7 @@ The ImGui interface includes a `Use BVH` toggle that switches between the naive 
 
 ## Refraction and Fresnel
 
-For the 2-point refraction feature, I added an ideal dielectric material type to the path tracer. Refractive materials specify an index of refraction (IOR) in the scene file. During shading, I determine whether the ray is entering or exiting the material and use the corresponding incident and transmitted indices of refraction.
+I added an ideal dielectric material type to support refraction in the path tracer. Refractive materials specify an index of refraction (IOR) in the scene file. During shading, I determine whether the ray is entering or exiting the material and use the corresponding incident and transmitted indices of refraction.
 
 I use `glm::refract` to compute the transmitted direction according to Snell's law. If transmission is not possible, the ray undergoes total internal reflection. Otherwise, I use Schlick's approximation to estimate the Fresnel reflectance and stochastically choose between the reflected and transmitted directions. This makes reflection more likely at grazing angles while still allowing transmission through the dielectric.
 
@@ -109,7 +109,7 @@ The `refraction_showcase.json` scene uses this material to demonstrate the refra
 
 ## Physically Based Depth of Field
 
-For the 2-point physically based depth-of-field feature, I extended the camera with a thin-lens model. The original pinhole ray is still generated first, including its stochastic antialiasing offset. I then use that ray to determine a point on the focal plane.
+I extended the camera with a physically based thin-lens depth-of-field model. The original pinhole ray is still generated first, including its stochastic antialiasing offset. I then use that ray to determine a point on the focal plane.
 
 When the lens radius is greater than zero, I uniformly sample a point on a circular lens. I use the square root of a uniform random sample when computing the sample radius so that samples are distributed uniformly over the area of the disk rather than concentrated near its center. The ray origin is moved to this sampled lens position and its direction is changed so that it passes through the focal point determined by the original pinhole ray.
 
@@ -265,6 +265,8 @@ A CPU implementation would also benefit from reducing the number of primitive in
 
 I built and tested the project on Windows 11 using CMake, Visual Studio, and an NVIDIA CUDA-capable GPU. The system used for testing is listed at the top of this README.
 
+I modified `CMakeLists.txt` to expose the CUDA toolkit include directories to the build and to add the MSVC `/Zc:preprocessor` option needed by my Windows/Visual Studio configuration.
+
 From a Visual Studio x64 developer environment, configure and build the Debug version with:
 
 ```bat
@@ -278,6 +280,6 @@ Run the path tracer by passing a scene JSON file to the executable. For example:
 .\out\build\x64-Debug\bin\cis565_path_tracer.exe .\scenes\cornell.json
 ```
 
-Other included scenes can be run in the same way by replacing `cornell.json` with the desired scene file. The custom scenes used for the additional features include `refraction_showcase.json` and `dof_showcase.json`.
+The custom scenes used for feature demonstrations, analysis, and the final render include `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
 
 The interactive interface provides controls for enabling or disabling material sorting and BVH traversal. The custom refraction and depth-of-field parameters are specified in their scene JSON files as described above.
