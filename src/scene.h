@@ -11,6 +11,11 @@ public:
     Scene(std::string filename);
 
     std::vector<Geom> geoms;
+
+    // Flattened world-space triangles loaded from mesh objects
+    std::vector<Triangle> triangles;
+
+
     std::vector<Material> materials;
     RenderState state;
 };

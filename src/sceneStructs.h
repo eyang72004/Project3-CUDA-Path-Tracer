@@ -34,6 +34,22 @@ struct Geom
 };
 
 
+// Lightweight triangle primitive used by imported meshes
+// Vertex positions and normals are stored in world space after the mesh transform
+struct Triangle
+{
+    glm::vec3 v0;
+    glm::vec3 v1;
+    glm::vec3 v2;
+
+    glm::vec3 n0;
+    glm::vec3 n1;
+    glm::vec3 n2;
+
+    int materialid;
+};
+
+
 // Flat bounding volume hierarchy node used to accelerate ray-scene intersection tests
 // Construct BVH on CPU and store as array so it can be traversed iteratively on GPU
 struct BVHNode {
@@ -52,6 +68,25 @@ struct BVHNode {
     // Interior nodes use a geometry count of 0
     int firstGeomIndex;
     int geomCount;
+};
+
+
+// BVH node for imported mesh triangles
+// Triangle bounds are stored in world space to match flattened mesh data
+struct TriangleBVHNode {
+
+
+    glm::vec3 boundsMin;
+    glm::vec3 boundsMax;
+
+    int leftChild;
+    int rightChild;
+
+
+    int firstTriangleIndex;
+    int triangleCount;
+
+
 };
 
 struct Material

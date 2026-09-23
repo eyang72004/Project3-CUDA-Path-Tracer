@@ -96,6 +96,7 @@ static Scene* hst_scene = NULL;
 static GuiDataContainer* guiData = NULL;
 static glm::vec3* dev_image = NULL;
 static Geom* dev_geoms = NULL;
+static Triangle* dev_triangles = NULL; // Imported mesh triangles stored on GPU for ray intersection
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
@@ -107,6 +108,12 @@ static ShadeableIntersection* dev_intersections = NULL;
 static BVHNode* dev_bvhNodes = NULL;
 static int* dev_bvhGeomIndices = NULL;
 static int bvhNodeCount = 0;
+
+
+// Device-side flattened BVH data for imported mesh triangles
+static TriangleBVHNode* dev_triangleBvhNodes = NULL;
+static int* dev_triangleBvhIndices = NULL;
+static int triangleBvhNodeCount = 0;
 
 
 // CPU-side world-space bounds and centroid used while constructing BVH
@@ -156,9 +163,37 @@ static BVHPrimitiveInfo computeBVHPrimitiveInfo(const Geom& geom) {
 
 
 
+// Compute world-space AABB and centroid for imported mesh triangle
+static BVHPrimitiveInfo computeTriangleBVHPrimitiveInfo(const Triangle& triangle) {
+
+
+    BVHPrimitiveInfo info;
+
+
+    // Imported mesh vertices transformed into world space during OBJ loading
+    info.boundsMin = glm::min(triangle.v0, glm::min(triangle.v1, triangle.v2));
+
+
+
+    info.boundsMax = glm::max(triangle.v0, glm::max(triangle.v1, triangle.v2));
+
+
+
+    // Triangle centroid is used only for BVH partitioning
+    info.centroid = (triangle.v0 + triangle.v1 + triangle.v2) / 3.0f;
+
+    return info;
+}
+
+
 // CPU-side flattened BVH data populated during construction and copied to GPU
 static std::vector<BVHNode> hst_bvhNodes;
 static std::vector<int> hst_bvhGeomIndices;
+
+
+// CPU-side flattened triangle BVH data populated during construction and copied to GPU
+static std::vector<TriangleBVHNode> hst_triangleBvhNodes;
+static std::vector<int> hst_triangleBvhIndices;
 
 
 // Recursively construct BVH on CPU and flatten nodes into array for later iterative GPU traversal
@@ -297,6 +332,144 @@ static int buildBVHRecursive(
     return nodeIndex;
 }
 
+// Recursively construct triangle BVH on CPU and flatten nodes for iterative GPU traversal
+static int buildTriangleBVHRecursive(
+    const std::vector<BVHPrimitiveInfo>& primitiveInfo,
+    std::vector<int>& triangleIndices,
+    int start, int end, int depth
+) {
+
+    // Reserve this node's position before recursively appending its children
+    int nodeIndex = static_cast<int>(hst_triangleBvhNodes.size());
+
+
+    TriangleBVHNode node = {};
+
+
+    node.boundsMin = glm::vec3(FLT_MAX);
+    node.boundsMax = glm::vec3(-FLT_MAX);
+
+    node.leftChild = -1;
+    node.rightChild = -1;
+    node.firstTriangleIndex = -1;
+    node.triangleCount = 0;
+
+
+    // Expand this node's bounds to enclose every triangle in its current range
+    for (int i = start; i < end; i++) {
+
+        int triangleIndex = triangleIndices[i];
+
+
+
+        node.boundsMin = glm::min(node.boundsMin, primitiveInfo[triangleIndex].boundsMin);
+
+
+        node.boundsMax = glm::max(node.boundsMax, primitiveInfo[triangleIndex].boundsMax);
+    }
+
+
+
+    hst_triangleBvhNodes.push_back(node);
+
+
+    int triangleCount = end - start;
+
+
+
+
+    // Stop subdividing at the configured leaf size or maximum tree depth
+    if (triangleCount <= BVH_LEAF_SIZE || depth >= BVH_MAX_DEPTH) {
+
+
+        node.firstTriangleIndex = static_cast<int>(hst_triangleBvhIndices.size());
+
+
+
+        node.triangleCount = triangleCount;
+
+
+
+        for (int i = start; i < end; i++) {
+            hst_triangleBvhIndices.push_back(triangleIndices[i]);
+        }
+
+
+        hst_triangleBvhNodes[nodeIndex] = node;
+
+        return nodeIndex;
+    }
+
+
+    // Compute centroid bounds to choose longest subdivision axis
+    glm::vec3 centroidMin = glm::vec3(FLT_MAX);
+    glm::vec3 centroidMax = glm::vec3(-FLT_MAX);
+
+
+
+
+    for (int i = start; i < end; i++) {
+
+        int triangleIndex = triangleIndices[i];
+
+
+        const glm::vec3& centroid = primitiveInfo[triangleIndex].centroid;
+
+        centroidMin = glm::min(centroidMin, centroid);
+        centroidMax = glm::max(centroidMax, centroid);
+    }
+
+
+    glm::vec3 centroidExtent = centroidMax - centroidMin;
+
+
+    int splitAxis = 0;
+
+
+
+    if (centroidExtent.y > centroidExtent.x) {
+        splitAxis = 1;
+    }
+
+
+
+
+    if (centroidExtent.z > centroidExtent[splitAxis]) {
+        splitAxis = 2;
+    }
+
+
+    // Partition triangle range at its median centroid
+    int middle = start + triangleCount / 2;
+
+
+    std::nth_element(
+        triangleIndices.begin() + start,
+        triangleIndices.begin() + middle,
+        triangleIndices.begin() + end,
+        [&primitiveInfo, splitAxis](int a, int b) {
+            return primitiveInfo[a].centroid[splitAxis] < primitiveInfo[b].centroid[splitAxis];
+        }
+    );
+
+
+    node.leftChild = buildTriangleBVHRecursive(
+        primitiveInfo, triangleIndices, start, middle, depth + 1
+    );
+
+
+
+    node.rightChild = buildTriangleBVHRecursive(
+        primitiveInfo, triangleIndices, middle, end, depth + 1
+    );
+
+    // Recursive calls may reallocate the vector, so write back by index
+    hst_triangleBvhNodes[nodeIndex] = node;
+
+
+    return nodeIndex;
+}
+
 
 // Build flattened BVH once on the CPU from the scene geometry
 static void buildBVH(const std::vector<Geom>& geoms) {
@@ -338,6 +511,71 @@ static void buildBVH(const std::vector<Geom>& geoms) {
 
     // Record the number of flattened BVH nodes for later GPU allocation and traversal
     bvhNodeCount = static_cast<int>(hst_bvhNodes.size());
+
+
+}
+
+
+// Build flattened triangle BVH once on the CPU from imported mesh triangles
+static void buildTriangleBVH(const std::vector<Triangle>& triangles) {
+
+
+    hst_triangleBvhNodes.clear();
+    hst_triangleBvhIndices.clear();
+
+
+    triangleBvhNodeCount = 0;
+
+
+
+    // A scene without imported mesh triangles has no triangle BVH to construct
+    if (triangles.empty()) {
+        return;
+    }
+
+
+
+
+    // Temporary CPU-side data used to organize triangles during BVH construction
+    std::vector<BVHPrimitiveInfo> primitiveInfo(triangles.size());
+
+
+    std::vector<int> triangleIndices(triangles.size());
+
+
+
+
+    // Precompute each triangle's world-space bounds and centroid
+    for (int i = 0; i < static_cast<int>(triangles.size()); i++) {
+        primitiveInfo[i] = computeTriangleBVHPrimitiveInfo(triangles[i]);
+    }
+
+
+
+
+    // Initialize triangle indices before recursive median partitioning reorders them
+    std::iota(triangleIndices.begin(), triangleIndices.end(), 0);
+
+
+
+
+
+    // Construct flattened triangle BVH beginning with the full triangle range
+    buildTriangleBVHRecursive(
+        primitiveInfo,
+        triangleIndices,
+        0,
+        static_cast<int>(triangleIndices.size()),
+        0
+    );
+
+
+
+
+
+    // Record flattened node count for later GPU allocation and traversal
+    triangleBvhNodeCount = static_cast<int>(hst_triangleBvhNodes.size());
+
 
 
 }
@@ -420,6 +658,19 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_geoms, scene->geoms.size() * sizeof(Geom));
     cudaMemcpy(dev_geoms, scene->geoms.data(), scene->geoms.size() * sizeof(Geom), cudaMemcpyHostToDevice);
 
+
+    // Copy imported mesh triangles to GPU memory for ray intersection
+    if (!scene->triangles.empty()) {
+        cudaMalloc(&dev_triangles, scene->triangles.size() * sizeof(Triangle));
+
+        cudaMemcpy(dev_triangles, scene->triangles.data(), scene->triangles.size() * sizeof(Triangle), cudaMemcpyHostToDevice);
+
+
+
+    }
+
+
+
     cudaMalloc(&dev_materials, scene->materials.size() * sizeof(Material));
     cudaMemcpy(dev_materials, scene->materials.data(), scene->materials.size() * sizeof(Material), cudaMemcpyHostToDevice);
 
@@ -431,6 +682,12 @@ void pathtraceInit(Scene* scene)
 
     // Construct CPU-side flattened BVH once when the scene is initialized
     buildBVH(scene->geoms);
+
+
+    // Construct CPU-side flattened BVH for imported mesh triangles
+    buildTriangleBVH(scene->triangles);
+
+
 
 
     // Allocate device storage for the flattened BVH nodes produced by CPU construction
@@ -461,6 +718,40 @@ void pathtraceInit(Scene* scene)
         );
     }
 
+
+    // Allocate device storage for flattened triangle BVH nodes
+    if (triangleBvhNodeCount > 0) {
+
+        cudaMalloc(&dev_triangleBvhNodes, triangleBvhNodeCount * sizeof(TriangleBVHNode));
+
+
+        // Copy CPU-built triangle BVH nodes to device memory for iterative traversal
+        cudaMemcpy(dev_triangleBvhNodes, hst_triangleBvhNodes.data(), triangleBvhNodeCount * sizeof(TriangleBVHNode), cudaMemcpyHostToDevice);
+
+
+    }
+
+
+    
+
+
+
+    // Allocate device storage for triangle indices referenced by triangle BVH leaf nodes
+    if (!hst_triangleBvhIndices.empty()) {
+        
+        
+        
+        cudaMalloc(&dev_triangleBvhIndices, hst_triangleBvhIndices.size() * sizeof(int));
+
+
+
+
+        // Copy flattened triangle leaf-index array to device memory
+        cudaMemcpy(dev_triangleBvhIndices, hst_triangleBvhIndices.data(), hst_triangleBvhIndices.size() * sizeof(int), cudaMemcpyHostToDevice);
+
+
+    }
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -469,6 +760,7 @@ void pathtraceFree()
     cudaFree(dev_image);  // no-op if dev_image is null
     cudaFree(dev_paths);
     cudaFree(dev_geoms);
+    cudaFree(dev_triangles);
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
@@ -480,6 +772,14 @@ void pathtraceFree()
 
     // Free device storage allocated for BVH leaf primitive indices
     cudaFree(dev_bvhGeomIndices);
+
+
+    // Free device storage allocated for imported triangle BVH nodes
+    cudaFree(dev_triangleBvhNodes);
+
+
+    // Free device storage allocated for triangle BVH leaf indices
+    cudaFree(dev_triangleBvhIndices);
 
 
     checkCUDAError("pathtraceFree");
@@ -577,6 +877,8 @@ __global__ void computeIntersections(
     PathSegment* pathSegments,
     Geom* geoms,
     int geoms_size,
+    Triangle* triangles,
+    int triangle_count,
     ShadeableIntersection* intersections)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -590,6 +892,7 @@ __global__ void computeIntersections(
         glm::vec3 normal;
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
+        int hit_material_id = -1;
         bool outside = true;
 
         glm::vec3 tmp_intersect;
@@ -617,12 +920,44 @@ __global__ void computeIntersections(
             {
                 t_min = t;
                 hit_geom_index = i;
+                hit_material_id = geom.materialid;
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
             }
         }
 
-        if (hit_geom_index == -1)
+        // Test imported mesh triangles against the same ray and keep the closest primitive hit across both analytic geometry and mesh geometry
+        for (int i = 0; i < triangle_count; i++)
+        {
+            Triangle& triangle = triangles[i];
+
+
+
+            t = triangleIntersectionTest(
+                triangle,
+                pathSegment.ray,
+                tmp_intersect,
+                tmp_normal,
+                outside
+            );
+
+            if (t > 0.0f && t_min > t) {
+                t_min = t;
+
+                hit_material_id = triangle.materialid;
+
+
+
+                intersect_point = tmp_intersect;
+
+
+                normal = tmp_normal;
+            }
+
+
+        }
+
+        if (hit_material_id == -1)
         {
             intersections[path_index].t = -1.0f;
 
@@ -633,7 +968,7 @@ __global__ void computeIntersections(
         {
             // The ray hits something
             intersections[path_index].t = t_min;
-            intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+            intersections[path_index].materialId = hit_material_id; // geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
         }
     }
@@ -646,7 +981,9 @@ __global__ void computeIntersectionsBVH(
     int depth, int num_paths,
     PathSegment* pathSegments, Geom* geoms,
     BVHNode* bvhNodes, int* bvhGeomIndices,
-    int bvhNodeCount, ShadeableIntersection* intersections
+    int bvhNodeCount, Triangle* triangles, TriangleBVHNode* triangleBvhNodes,
+    int* triangleBvhIndices, int triangleBvhNodeCount,
+    ShadeableIntersection* intersections
 ) {
 
     int path_index = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -660,6 +997,7 @@ __global__ void computeIntersectionsBVH(
         // Track the closest primitive intersection found during BVH traversal
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
+        int hit_material_id = -1;
         glm::vec3 normal;
 
 
@@ -739,6 +1077,7 @@ __global__ void computeIntersectionsBVH(
                     if (t > 0.0f && t_min > t) {
                         t_min = t;
                         hit_geom_index = geomIndex;
+                        hit_material_id = geom.materialid;
                         normal = tmp_normal;
                     }
                 }
@@ -760,14 +1099,97 @@ __global__ void computeIntersectionsBVH(
         }
 
 
+        // Explicit local stack for iterative traversal of imported triangle BVH
+        int triangleTraversalStack[BVH_STACK_SIZE];
+        int triangleStackSize = 0;
+
+
+        // Begin triangle BVH traversal at its root when imported mesh triangles are present
+        if (triangleBvhNodeCount > 0) {
+            triangleTraversalStack[triangleStackSize++] = 0;
+        }
+
+
+        // Iteratively traverse triangle BVH nodes until no nodes remain on the explicitstack
+        while (triangleStackSize > 0) {
+
+            // Pop next flattened triangle BVH node to process
+            int nodeIndex = triangleTraversalStack[--triangleStackSize];
+
+
+
+            TriangleBVHNode node = triangleBvhNodes[nodeIndex];
+
+
+
+            // Skip this node when its bounding box is missed or lies beyond closest hit found so far
+            if (!rayIntersectsAABB(pathSegment.ray, node.boundsMin, node.boundsMax, t_min)) {
+
+                continue;
+            }
+
+
+            // Leaf nodes contain a contiguous range of imported triangle indices to test
+            if (node.triangleCount > 0) {
+
+                for (int i = 0; i < node.triangleCount; i++) {
+
+                    int triangleIndex = triangleBvhIndices[node.firstTriangleIndex + i];
+
+                    Triangle& triangle = triangles[triangleIndex];
+
+                    float t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+
+
+
+
+                    // Keep the closest hit across both analytic geometry and imported triangles
+                    if (t > 0.0f && t_min > t) {
+                        t_min = t;
+                        hit_material_id = triangle.materialid;
+                        normal = tmp_normal;
+                    }
+                }
+
+                continue;
+            }
+
+
+            // Interior triangle BVH nodes store child indices into the same flattened node array
+            // Push both children onto the explicit stack so GPU traversal remains iterative
+            if (node.rightChild >= 0) {
+                triangleTraversalStack[triangleStackSize++] = node.rightChild;
+            }
+
+
+
+
+            if (node.leftChild >= 0) {
+                triangleTraversalStack[triangleStackSize++] = node.leftChild;
+            }
+
+
+        }
+
+
         // Match the naive intersection kernel's output convention for misses and closest hits
-        if (hit_geom_index == -1) {
+        //if (hit_geom_index == -1) {
+        //    intersections[path_index].t = -1.0f;
+        //    intersections[path_index].materialId = -1;
+        //}
+        //else {
+        //    intersections[path_index].t = t_min;
+        //    intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+        //    intersections[path_index].surfaceNormal = normal;
+        //}
+
+        if (hit_material_id == -1) {
             intersections[path_index].t = -1.0f;
             intersections[path_index].materialId = -1;
         }
         else {
             intersections[path_index].t = t_min;
-            intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+            intersections[path_index].materialId = hit_material_id;
             intersections[path_index].surfaceNormal = normal;
         }
 
@@ -1009,7 +1431,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
 
         // Select between BVH-accelerated and naive intersection testing for performance comparison
-        if (guiData != NULL && guiData->UseBVH && bvhNodeCount > 0) {
+        if (guiData != NULL && guiData->UseBVH && (bvhNodeCount > 0 || triangleBvhNodeCount > 0)) {
             computeIntersectionsBVH<<<numblocksPathSegmentTracing, blockSize1d>>>(
                 depth,
                 num_paths,
@@ -1018,6 +1440,10 @@ void pathtrace(uchar4* pbo, int frame, int iter)
                 dev_bvhNodes,
                 dev_bvhGeomIndices,
                 bvhNodeCount,
+                dev_triangles,
+                dev_triangleBvhNodes,
+                dev_triangleBvhIndices,
+                triangleBvhNodeCount,
                 dev_intersections
             );
         }
@@ -1028,6 +1454,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
                 dev_paths,
                 dev_geoms,
                 hst_scene->geoms.size(),
+                dev_triangles,
+                hst_scene->triangles.size(),
                 dev_intersections
             );
         }
