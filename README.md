@@ -7,15 +7,15 @@
 
 ## Overview
 
-This project implements a CUDA path tracer with stochastic antialiasing, diffuse and ideal specular materials, iterative path tracing with stream compaction, and optional material sorting before shading. I also implemented three rendering and acceleration features: a bounding volume hierarchy (BVH), dielectric refraction with Fresnel reflection, and physically based depth of field using a thin-lens camera model.
+This project implements a CUDA path tracer with stochastic antialiasing, diffuse and ideal specular materials, iterative path tracing with stream compaction, and optional material sorting before shading. I also implemented a bounding volume hierarchy (BVH), arbitrary OBJ mesh loading and triangle rendering, dielectric refraction with Fresnel reflection, and physically based depth of field using a thin-lens camera model.
 
-The BVH is constructed on the CPU and stored as a flattened hierarchy for iterative traversal on the GPU. I kept both the BVH and naive intersection implementations available through an ImGui toggle so that I could compare their performance directly. For refractive materials, I implemented Snell's law using `glm::refract`, total internal reflection, and Fresnel reflection using Schlick's approximation. For depth of field, I sample ray origins over a circular lens and redirect them toward a focal plane.
+The BVH is constructed on the CPU and stored as a flattened hierarchy for iterative traversal on the GPU. I extended this acceleration path to imported triangle meshes while retaining the naive intersection path for controlled comparisons. The OBJ loader parses polygonal faces and triangulates them for rendering. For refractive materials, I implemented Snell's law using `glm::refract`, total internal reflection, and Fresnel reflection using Schlick's approximation. For depth of field, I sample ray origins over a circular lens and redirect them toward a focal plane.
 
 ## Final Render
 
 ![Final showcase scene rendered with the CUDA path tracer](img/final_showcase_5000.png)
 
-*Final showcase scene rendered for 5000 iterations.*
+*Final showcase rendered at 800 × 800 resolution for 5000 iterations with a maximum path depth of 8. BVH traversal and material sorting were disabled for this render. The scene combines diffuse surfaces, ideal specular reflection, and dielectric refraction with Fresnel effects, while the thin-lens camera uses a lens radius of 0.18 and focal distance of 14 to introduce physically based depth of field.*
 
 
 
@@ -59,6 +59,61 @@ I implemented a separate BVH intersection kernel so that the original naive inte
 The current closest intersection distance is also passed to the bounding-box test so that nodes that cannot contain a closer hit can be rejected. The final intersection information uses the same structure as the naive implementation, allowing the rest of the path-tracing pipeline to operate unchanged.
 
 The ImGui interface includes a `Use BVH` toggle that switches between the naive and BVH intersection kernels. This made it possible to check that both implementations produced consistent renders and to measure their performance under the same scene and renderer settings.
+
+
+
+## Arbitrary OBJ Mesh Loading
+
+I extended the scene loader to support arbitrary geometry imported from Wavefront OBJ files. OBJ meshes are converted into triangles during scene loading and then rendered by the same path-tracing pipeline as the existing analytic primitives.
+
+The loader supports vertex positions, vertex normals, polygonal faces, and the common OBJ face-index forms `v`, `v/vt`, `v//vn`, and `v/vt/vn`. Polygonal faces are triangulated using a triangle fan. Negative OBJ indices are also supported. When vertex normals are available, they are interpolated across the triangle using barycentric coordinates during intersection; otherwise, the loader falls back to the geometric face normal. Object transformations from the scene file are applied to the imported geometry before rendering.
+
+Ray-triangle intersections use the Möller-Trumbore algorithm. Imported triangles participate in both intersection paths: with BVH traversal disabled, rays test the mesh triangles directly; with BVH traversal enabled, a triangle BVH is constructed on the CPU and traversed iteratively on the GPU.
+
+### Mesh Loading Validation
+
+![OBJ mesh loading validation](img/mesh_loading_validation_5000.png)
+
+*OBJ mesh-loading validation rendered at 800 × 800 resolution for 5000 iterations with a maximum path depth of 8. BVH traversal and material sorting were disabled for this render, intentionally exercising the naive imported-triangle intersection path.*
+
+I also verified the same imported triangle scene with BVH traversal enabled, confirming that imported geometry can be rendered through the triangle-BVH traversal path as well. This validation is intended as a correctness check rather than a performance comparison; a single-triangle mesh does not provide enough geometric complexity for a meaningful BVH speedup measurement.
+
+
+### Mesh BVH Performance
+
+To evaluate bounding-volume acceleration on a more geometrically complex imported mesh, I used a violin OBJ containing 539 polygonal face records. After the loader's triangle-fan triangulation, this produces 1,092 triangles. The benchmark scene was rendered at 800 × 800 resolution with a maximum path depth of 8 and material sorting disabled.
+
+I compared the naive triangle-intersection path against the triangle BVH using the Debug build. With BVH traversal disabled, the application reported 1918.772 ms/frame (0.5 FPS) at 100 iterations. With BVH traversal enabled, it reported 240.142 ms/frame (4.2 FPS) at 102 iterations.
+
+| Intersection Method | Iteration at Capture | Frame Time (ms/frame) | FPS |
+|:---:|---:|---:|---:|
+| Naive / BVH OFF | 100 | 1918.772 | 0.5 |
+| BVH ON | 102 | 240.142 | 4.2 |
+
+For this imported-mesh benchmark, enabling BVH traversal reduced the reported application-level frame time by approximately 87.5%, with the BVH-off frame time approximately 7.99× the BVH-on frame time. Unlike the small Cornell scene, the 1,092-triangle mesh provides substantially more primitive-intersection work for the hierarchy to eliminate. The naive path tests mesh triangles directly, whereas BVH traversal can reject groups of triangles when their bounding boxes are not intersected by the ray.
+
+These measurements are application-level Debug-build measurements rather than isolated intersection-kernel timings, and the captures were taken at 100 and 102 iterations respectively. I therefore treat the result as evidence for the benefit of the BVH in this particular imported-mesh workload rather than as a general performance guarantee.
+
+The hierarchy is constructed once on the CPU and traversed iteratively by GPU threads during rendering. A CPU renderer could use the same hierarchical culling principle to reduce triangle-intersection tests, but I did not benchmark a CPU path tracer and therefore do not make a measured CPU-versus-GPU performance claim. Further optimization could include surface-area-heuristic BVH construction, near-first child traversal, and more compact node and triangle layouts to improve memory-access behavior.
+
+
+
+### Scene Format
+
+OBJ meshes are specified as objects with `TYPE` set to `mesh` and a `FILE` path identifying the OBJ file. The mesh uses a material defined in the scene's `Materials` section and supports the same translation, rotation, and scale fields used for other scene objects. For example:
+
+```json
+{
+    "TYPE": "mesh",
+    "FILE": "meshes/mesh_benchmark/Violin.obj",
+    "MATERIAL": "mesh_white",
+    "TRANS": [-1.95, 1.31, 0.78],
+    "ROTAT": [0.0, 0.0, 0.0],
+    "SCALE": [1.0, 1.0, 1.0]
+}
+```
+
+The `mesh_benchmark.json` scene uses this format for the imported violin mesh used in the triangle-BVH performance comparison.
 
 
 
@@ -280,6 +335,14 @@ Run the path tracer by passing a scene JSON file to the executable. For example:
 .\out\build\x64-Debug\bin\cis565_path_tracer.exe .\scenes\cornell.json
 ```
 
-The custom scenes used for feature demonstrations, analysis, and the final render include `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
+The custom scenes used for feature demonstrations, analysis, and the final render include `mesh_test.json`, `mesh_benchmark.json`, `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
 
 The interactive interface provides controls for enabling or disabling material sorting and BVH traversal. The custom refraction and depth-of-field parameters are specified in their scene JSON files as described above.
+
+
+
+
+
+## Third-Party Assets
+
+The violin model used in the OBJ mesh-loading and BVH benchmark is from **Sam's Simple Instruments** by **Sam Meese**, released under the **CC0 1.0 Universal** public-domain dedication. The original asset pack is available from [Sam's Simple Instruments on itch.io](https://sammeese.itch.io/simple-instruments-assets).
