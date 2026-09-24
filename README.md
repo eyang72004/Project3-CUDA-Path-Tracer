@@ -90,6 +90,19 @@ I compared the naive triangle-intersection path against the triangle BVH using t
 | Naive / BVH OFF | 100 | 1918.772 | 0.5 |
 | BVH ON | 102 | 240.142 | 4.2 |
 
+
+
+#### Visual BVH Comparison
+
+| BVH disabled | BVH enabled |
+| --- | --- |
+| ![Violin mesh benchmark with BVH disabled](img/mesh_benchmark_bvh_off_debug_100.png) | ![Violin mesh benchmark with BVH enabled](img/mesh_benchmark_bvh_on_debug_101.png) |
+
+*Visual comparison of the same violin mesh benchmark with material sorting disabled in both runs. The left image uses the naive triangle-intersection path with BVH acceleration disabled; the right image enables BVH acceleration. The screenshots were captured at 100 and 101 iterations, respectively, and are included to show that the accelerated traversal preserves the rendered result while substantially reducing the observed application-level frame time. The formal performance comparison is reported in the table above.*
+
+
+
+
 For this imported-mesh benchmark, enabling BVH traversal reduced the reported application-level frame time by approximately 87.5%, with the BVH-off frame time approximately 7.99× the BVH-on frame time. Unlike the small Cornell scene, the 1,092-triangle mesh provides substantially more primitive-intersection work for the hierarchy to eliminate. The naive path tests mesh triangles directly, whereas BVH traversal can reject groups of triangles when their bounding boxes are not intersected by the ray.
 
 These measurements are application-level Debug-build measurements rather than isolated intersection-kernel timings, and the captures were taken at 100 and 102 iterations respectively. I therefore treat the result as evidence for the benefit of the BVH in this particular imported-mesh workload rather than as a general performance guarantee.
