@@ -83,12 +83,12 @@ I also verified the same imported triangle scene with BVH traversal enabled, con
 
 To evaluate bounding-volume acceleration on a more geometrically complex imported mesh, I used a violin OBJ containing 539 polygonal face records. After the loader's triangle-fan triangulation, this produces 1,092 triangles. The benchmark scene was rendered at 800 × 800 resolution with a maximum path depth of 8 and material sorting disabled.
 
-I compared the naive triangle-intersection path against the triangle BVH using the Debug build. With BVH traversal disabled, the application reported 1918.772 ms/frame (0.5 FPS) at 100 iterations. With BVH traversal enabled, it reported 240.142 ms/frame (4.2 FPS) at 102 iterations.
+I compared the naive triangle-intersection path against the triangle BVH using the Release build. With BVH traversal disabled, the application reported 33.881 ms/frame (29.5 FPS). With BVH traversal enabled, it reported 8.250 ms/frame (121.2 FPS).
 
-| Intersection Method | Iteration at Capture | Frame Time (ms/frame) | FPS |
-|:---:|---:|---:|---:|
-| Naive / BVH OFF | 100 | 1918.772 | 0.5 |
-| BVH ON | 102 | 240.142 | 4.2 |
+| Intersection Method | Frame Time (ms/frame) | FPS |
+|:---:|---:|---:|
+| Naive / BVH OFF | 33.881 | 29.5 |
+| BVH ON | 8.250 | 121.2 |
 
 
 
@@ -96,16 +96,16 @@ I compared the naive triangle-intersection path against the triangle BVH using t
 
 | BVH disabled | BVH enabled |
 | --- | --- |
-| ![Violin mesh benchmark with BVH disabled](img/mesh_benchmark_bvh_off_debug_100.png) | ![Violin mesh benchmark with BVH enabled](img/mesh_benchmark_bvh_on_debug_101.png) |
+| ![Violin mesh benchmark with BVH disabled](img/mesh_benchmark_release_bvh_off_899.png) | ![Violin mesh benchmark with BVH enabled](img/mesh_benchmark_release_bvh_on_907.png) |
 
-*Visual comparison of the same violin mesh benchmark with material sorting disabled in both runs. The left image uses the naive triangle-intersection path with BVH acceleration disabled; the right image enables BVH acceleration. The screenshots were captured at 100 and 101 iterations, respectively, and are included to show that the accelerated traversal preserves the rendered result while substantially reducing the observed application-level frame time. The formal performance comparison is reported in the table above.*
+*Visual comparison of the same violin mesh benchmark with material sorting disabled in both runs. The left image uses the naive triangle-intersection path with BVH acceleration disabled; the right image enables BVH acceleration. The screenshots were captured at 899 and 907 iterations respectively after switching to the Release build. They are included to show that the accelerated traversal preserves the rendered result while substantially reducing the observed application-level frame time. The formal performance comparison is reported in the table above.*
 
 
 
 
 For this imported-mesh benchmark, enabling BVH traversal reduced the reported application-level frame time by approximately 87.5%, with the BVH-off frame time approximately 7.99× the BVH-on frame time. Unlike the small Cornell scene, the 1,092-triangle mesh provides substantially more primitive-intersection work for the hierarchy to eliminate. The naive path tests mesh triangles directly, whereas BVH traversal can reject groups of triangles when their bounding boxes are not intersected by the ray.
 
-These measurements are application-level Debug-build measurements rather than isolated intersection-kernel timings, and the captures were taken at 100 and 102 iterations respectively. I therefore treat the result as evidence for the benefit of the BVH in this particular imported-mesh workload rather than as a general performance guarantee.
+These measurements are application-level Release-build measurements rather than isolated intersection-kernel timings, and the captures were taken at comparable iteration counts. I therefore treat the result as evidence for the benefit of the BVH in this particular imported-mesh workload rather than as a general performance guarantee.
 
 The hierarchy is constructed once on the CPU and traversed iteratively by GPU threads during rendering. A CPU renderer could use the same hierarchical culling principle to reduce triangle-intersection tests, but I did not benchmark a CPU path tracer and therefore do not make a measured CPU-versus-GPU performance claim. Further optimization could include surface-area-heuristic BVH construction, near-first child traversal, and more compact node and triangle layouts to improve memory-access behavior.
 
@@ -243,7 +243,7 @@ Scenes that do not specify `LENS_RADIUS` default to a lens radius of zero and th
 
 ## Performance Analysis
 
-I measured the performance impact of material sorting and BVH traversal using the Cornell box scene. The reported measurements below were collected from the interactive application using the Debug build on the system listed at the top of this README. After receiving course-staff feedback recommending Release-mode performance testing, I also configured and successfully built fresh optimized versions of the project using both the Visual Studio and Ninja generators in Release mode, as well as a Ninja RelWithDebInfo build. However, each optimized project executable consistently failed at startup with a CUDA runtime error (`CUDA-capable device(s) is/are busy or unavailable`) at the initial pathtraceFree() CUDA error check, including when running the provided Cornell scene before path-tracing initialization and rendering began. The existing Debug build continued to render normally, and separate optimized standalone CUDA tests successfully detected the GPU and completed basic CUDA runtime operations. I therefore retain the Debug-build measurements below and label them explicitly rather than presenting them as Release-mode results. Because these are application-level measurements rather than isolated CUDA kernel microbenchmarks, I treat them as representative measurements for this scene and configuration rather than general performance guarantees.
+I measured the performance impact of material sorting and BVH traversal using the Cornell box scene and the imported violin mesh benchmark. These measurements were collected from the interactive application using the Release build on the system listed at the top of this README. Because these are application-level measurements rather than isolated CUDA kernel microbenchmarks, I treat them as representative measurements for these scenes and configurations rather than general performance guarantees.
 
 For each comparison, I kept the scene, camera, maximum path depth, and other renderer options fixed while changing the feature being tested.
 
@@ -280,16 +280,16 @@ This illustrates where stream compaction is useful: as paths terminate, later in
 
 ### Material Sorting
 
-I compared material sorting with BVH traversal disabled. The sorting-disabled render reached 302 iterations and reported 441.888 ms/frame, while the sorting-enabled render reached 105 iterations and reported 2493.033 ms/frame.
+I compared material sorting with BVH traversal disabled. The sorting-disabled render reported 12.388 ms/frame, while the sorting-enabled render reported 40.817 ms/frame.
 
 | Material Sorting | Frame Time (ms/frame) | FPS |
 |:---:|---:|---:|
-| OFF | 441.888 | 2.3 |
-| ON | 2493.033 | 0.4 |
+| OFF | 12.388 | 80.7 |
+| ON | 40.817 | 24.5 |
 
 ![Material sorting performance](img/material_sorting_performance_bar.png)
 
-*Material sorting performance measured using the Debug build and Cornell box scene.*
+*Material sorting performance measured using the Release build and Cornell box scene.*
 
 In this test, enabling material sorting increased the measured frame time substantially. My implementation performs a Thrust sort of the zipped intersection and path arrays before shading at each bounce. Although grouping paths by material can improve coherence during shading, the Cornell scene has a relatively small and simple set of materials, and the additional sorting work can outweigh that benefit in this configuration. The measured result therefore does not show a performance improvement from material sorting for this scene.
 
@@ -297,22 +297,22 @@ The two renders below were used for the controlled comparison.
 
 | Material Sorting OFF | Material Sorting ON |
 |:---:|:---:|
-| ![Material sorting disabled](img/material_sorting_off_debug_302.png) | ![Material sorting enabled](img/material_sorting_on_debug_105.png) |
+| ![Material sorting disabled](img/cornell_release_sorting_off_bvh_off_4022.png) | ![Material sorting enabled](img/cornell_release_sorting_on_bvh_off_4013.png) |
 
 A more optimized implementation could reduce sorting overhead or avoid sorting when the expected coherence benefit is too small. A more complex scene with more expensive or divergent material evaluation could also change the tradeoff. On a CPU implementation, grouping work by material could improve cache locality and potentially reduce changes between different shading code paths, but the GPU-specific tradeoff involving sorting overhead, SIMT divergence, and memory behavior would not transfer directly.
 
 ### BVH Traversal
 
-I also compared the naive intersection kernel against BVH traversal with material sorting disabled. Both measurements were taken at 501 iterations.
+I also compared the naive intersection kernel against BVH traversal with material sorting disabled using the Release build.
 
 | Intersection Method | Frame Time (ms/frame) | FPS |
 |:---:|---:|---:|
-| Naive / BVH OFF | 440.780 | 2.3 |
-| BVH ON | 541.705 | 1.8 |
+| Naive / BVH OFF | 12.388 | 80.7 |
+| BVH ON | 13.323 | 75.1 |
 
 ![BVH performance](img/bvh_performance_bar.png)
 
-*BVH performance measured using the Debug build and Cornell box scene.*
+*BVH performance measured using the Release build and Cornell box scene.*
 
 For this Cornell scene, the BVH implementation did not reduce the measured frame time. BVH traversal avoids testing every primitive by rejecting nodes whose bounding boxes do not intersect the ray, but traversal itself introduces bounding-box intersection tests, stack operations, branches, and additional memory accesses. Because this scene contains relatively few primitives, there is limited unnecessary primitive-intersection work for the hierarchy to eliminate, so the traversal overhead can outweigh the savings.
 
@@ -320,7 +320,7 @@ The controlled renders below use the same scene and renderer settings with only 
 
 | BVH OFF | BVH ON |
 |:---:|:---:|
-| ![BVH disabled](img/bvh_off_debug_501.png) | ![BVH enabled](img/bvh_on_debug_501.png) |
+| ![BVH disabled](img/cornell_release_sorting_off_bvh_off_4022.png) | ![BVH enabled](img/cornell_release_sorting_off_bvh_on_4056.png) |
 
 This result should not be interpreted as showing that BVHs are generally slower than naive traversal. The current implementation uses a straightforward median split along the largest centroid extent and iterative traversal with a local stack. A larger or more geometrically complex scene provides more opportunity for hierarchical culling to reduce primitive intersection tests. Further optimizations could include a surface-area-heuristic construction strategy, near-first traversal, and a node layout designed to reduce traversal and memory-access overhead.
 
@@ -348,7 +348,7 @@ Run the path tracer by passing a scene JSON file to the executable. For example:
 .\out\build\x64-Debug\bin\cis565_path_tracer.exe .\scenes\cornell.json
 ```
 
-For performance testing, I also attempted fresh optimized builds after receiving course-staff feedback recommending Release-mode measurements. I successfully compiled both Visual Studio and Ninja Release configurations, as well as a Ninja RelWithDebInfo configuration. On my test system, however, each optimized project executable encountered a CUDA runtime error at the initial `pathtraceFree()` CUDA error check before path-tracing initialization and rendering began, including with the provided Cornell scene. The Debug build remained functional. For this reason, the performance measurements reported above remain explicitly identified as Debug-build application-level measurements rather than Release-mode results.
+For performance testing, I used the Visual Studio Release configuration. On systems with both integrated and discrete GPUs, ensure that the application is configured to use the discrete NVIDIA GPU for CUDA performance testing. The Release build was selected because it provides compiler optimizations representative of a deployed application and avoids the additional overhead associated with Debug builds.
 
 The custom scenes used for feature demonstrations, analysis, and the final render include `mesh_test.json`, `mesh_benchmark.json`, `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
 
