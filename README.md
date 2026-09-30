@@ -102,8 +102,7 @@ I compared the naive triangle-intersection path against the triangle BVH using t
 
 
 
-
-For this imported-mesh benchmark, enabling BVH traversal reduced the reported application-level frame time by approximately 87.5%, with the BVH-off frame time approximately 7.99× the BVH-on frame time. Unlike the small Cornell scene, the 1,092-triangle mesh provides substantially more primitive-intersection work for the hierarchy to eliminate. The naive path tests mesh triangles directly, whereas BVH traversal can reject groups of triangles when their bounding boxes are not intersected by the ray.
+For this imported-mesh benchmark, enabling BVH traversal reduced the reported application-level frame time by approximately 75.7%, with the BVH-off frame time approximately 4.11× the BVH-on frame time. Unlike the small Cornell scene, the 1,092-triangle mesh provides substantially more primitive-intersection work for the hierarchy to eliminate. The naive path tests mesh triangles directly, whereas BVH traversal can reject groups of triangles when their bounding boxes are not intersected by the ray.
 
 These measurements are application-level Release-build measurements rather than isolated intersection-kernel timings, and the captures were taken at comparable iteration counts. I therefore treat the result as evidence for the benefit of the BVH in this particular imported-mesh workload rather than as a general performance guarantee.
 
@@ -348,7 +347,7 @@ Run the path tracer by passing a scene JSON file to the executable. For example:
 .\out\build\x64-Debug\bin\cis565_path_tracer.exe .\scenes\cornell.json
 ```
 
-For performance testing, I used the Visual Studio Release configuration. On systems with both integrated and discrete GPUs, ensure that the application is configured to use the discrete NVIDIA GPU for CUDA performance testing. The Release build was selected because it provides compiler optimizations representative of a deployed application and avoids the additional overhead associated with Debug builds.
+For performance testing, I used the Visual Studio Release configuration. The initial Release executable encountered a CUDA `device(s) is/are busy or unavailable` error during startup; configuring the application to use the discrete NVIDIA GPU resolved this issue, after which the Release benchmarks below ran successfully. The Release build was selected because it provides compiler optimizations representative of a deployed application and avoids the additional overhead associated with Debug builds.
 
 The custom scenes used for feature demonstrations, analysis, and the final render include `mesh_test.json`, `mesh_benchmark.json`, `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
 
