@@ -243,7 +243,7 @@ Scenes that do not specify `LENS_RADIUS` default to a lens radius of zero and th
 
 ## Performance Analysis
 
-I measured the performance impact of material sorting and BVH traversal using the Cornell box scene. These measurements were collected from the interactive application using the Debug build on the system listed at the top of this README. Because these are application-level measurements rather than isolated CUDA kernel microbenchmarks, I treat them as representative measurements for this scene and configuration rather than general performance guarantees.
+I measured the performance impact of material sorting and BVH traversal using the Cornell box scene. The reported measurements below were collected from the interactive application using the Debug build on the system listed at the top of this README. After receiving course-staff feedback recommending Release-mode performance testing, I also configured and successfully built fresh optimized versions of the project using both the Visual Studio and Ninja generators in Release mode, as well as a Ninja RelWithDebInfo build. However, each optimized project executable consistently failed at startup with a CUDA runtime error (`CUDA-capable device(s) is/are busy or unavailable`) at the initial pathtraceFree() CUDA error check, including when running the provided Cornell scene before path-tracing initialization and rendering began. The existing Debug build continued to render normally, and separate optimized standalone CUDA tests successfully detected the GPU and completed basic CUDA runtime operations. I therefore retain the Debug-build measurements below and label them explicitly rather than presenting them as Release-mode results. Because these are application-level measurements rather than isolated CUDA kernel microbenchmarks, I treat them as representative measurements for this scene and configuration rather than general performance guarantees.
 
 For each comparison, I kept the scene, camera, maximum path depth, and other renderer options fixed while changing the feature being tested.
 
@@ -348,10 +348,11 @@ Run the path tracer by passing a scene JSON file to the executable. For example:
 .\out\build\x64-Debug\bin\cis565_path_tracer.exe .\scenes\cornell.json
 ```
 
+For performance testing, I also attempted fresh optimized builds after receiving course-staff feedback recommending Release-mode measurements. I successfully compiled both Visual Studio and Ninja Release configurations, as well as a Ninja RelWithDebInfo configuration. On my test system, however, each optimized project executable encountered a CUDA runtime error at the initial `pathtraceFree()` CUDA error check before path-tracing initialization and rendering began, including with the provided Cornell scene. The Debug build remained functional. For this reason, the performance measurements reported above remain explicitly identified as Debug-build application-level measurements rather than Release-mode results.
+
 The custom scenes used for feature demonstrations, analysis, and the final render include `mesh_test.json`, `mesh_benchmark.json`, `refraction_showcase.json`, `dof_showcase.json`, `cornell_closed.json`, and `final_showcase.json`.
 
 The interactive interface provides controls for enabling or disabling material sorting and BVH traversal. The custom refraction and depth-of-field parameters are specified in their scene JSON files as described above.
-
 
 
 
